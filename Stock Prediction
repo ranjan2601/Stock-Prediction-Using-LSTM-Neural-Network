@@ -1,0 +1,470 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+%matplotlib inline
+from matplotlib.pylab import rcParams
+rcParams['figure.figsize']=20,10
+from keras.models import Sequential
+from keras.layers import LSTM,Dropout,Dense
+from sklearn.preprocessing import MinMaxScaler
+import yahoo_finance
+from datetime import datetime
+from pandas_datareader import data as pdr
+import plotly.express as px
+import plotly.graph_objects as go
+end = datetime.now()
+start = datetime(2016, 1, 1)
+#Entering the Stock name.
+stock = input('Enter Stock name ').upper()
+Enter Stock name amzn
+#Extracting the data from Yahoo and converting into a csv file.
+df = pdr.get_data_yahoo(stock, start, end)
+df = df.to_csv(f'{stock}.csv')
+df = pd.read_csv(f'{stock}.csv')
+df
+Date	High	Low	Open	Close	Volume	Adj Close
+0	2015-12-31	687.750000	675.890015	686.080017	675.890015	3749600	675.890015
+1	2016-01-04	657.719971	627.510010	656.289978	636.989990	9314500	636.989990
+2	2016-01-05	646.909973	627.650024	646.859985	633.789978	5822600	633.789978
+3	2016-01-06	639.789978	620.309998	622.000000	632.650024	5329200	632.650024
+4	2016-01-07	630.000000	605.210022	621.799988	607.940002	7074900	607.940002
+...	...	...	...	...	...	...	...
+1364	2021-06-03	3214.439941	3184.030029	3204.229980	3187.010010	2398300	3187.010010
+1365	2021-06-04	3221.000000	3198.810059	3212.000000	3206.219971	2245700	3206.219971
+1366	2021-06-07	3208.000000	3172.199951	3197.330078	3198.010010	2215800	3198.010010
+1367	2021-06-08	3279.530029	3218.010010	3222.610107	3264.110107	3405900	3264.110107
+1368	2021-06-09	3297.580078	3270.699951	3272.870117	3281.149902	2439123	3281.149902
+1369 rows × 7 columns
+
+df.describe()
+High	Low	Open	Close	Volume	Adj Close
+count	1369.000000	1369.000000	1369.000000	1369.000000	1.369000e+03	1369.000000
+mean	1707.417471	1669.999993	1690.001155	1689.164074	4.350827e+06	1689.164074
+std	858.422154	835.739754	848.009962	846.560097	2.103256e+06	846.560097
+min	493.500000	474.000000	478.010010	482.070007	8.813000e+05	482.070007
+25%	953.000000	939.210022	946.539978	946.940002	2.916200e+06	946.940002
+50%	1694.239990	1646.310059	1672.540039	1668.949951	3.756200e+06	1668.949951
+75%	1989.699951	1938.849976	1964.349976	1970.189941	5.155700e+06	1970.189941
+max	3554.000000	3486.689941	3547.000000	3531.449951	1.656500e+07	3531.449951
+fig = go.Figure(go.Scatter(
+    x = df['Date'],
+    y = df['Close']
+))
+
+fig.update_xaxes(
+    rangeslider_visible=True,
+    tickformatstops = [
+        dict(dtickrange=[None, 1000], value="%H:%M:%S.%L ms"),
+        dict(dtickrange=[1000, 60000], value="%H:%M:%S s"),
+        dict(dtickrange=[60000, 3600000], value="%H:%M m"),
+        dict(dtickrange=[3600000, 86400000], value="%H:%M h"),
+        dict(dtickrange=[86400000, 604800000], value="%e. %b d"),
+        dict(dtickrange=[604800000, "M1"], value="%e. %b w"),
+        dict(dtickrange=["M1", "M12"], value="%b '%y M"),
+        dict(dtickrange=["M12", None], value="%Y Y")
+    ]
+)
+fig.update_xaxes(title="Date", title_font_size= 20)
+fig.update_yaxes(title = "Closing Price", title_font_size= 20)
+fig.update_layout(title_text="Analysis", title_font_size= 30)
+fig.show()
+fig = go.Figure(go.Scatter(
+    x = df['Date'],
+    y = df['Low'],
+    name = 'Low Price'
+))
+fig.add_trace(go.Scatter(
+    x = df['Date'],
+    y = df['High'],
+    mode = "lines",
+    line=go.scatter.Line(color="black"),
+    name = 'High Price'
+))
+
+fig.update_xaxes(
+    rangeslider_visible=True,
+    tickformatstops = [
+        dict(dtickrange=[None, 1000], value="%H:%M:%S.%L ms"),
+        dict(dtickrange=[1000, 60000], value="%H:%M:%S s"),
+        dict(dtickrange=[60000, 3600000], value="%H:%M m"),
+        dict(dtickrange=[3600000, 86400000], value="%H:%M h"),
+        dict(dtickrange=[86400000, 604800000], value="%e. %b d"),
+        dict(dtickrange=[604800000, "M1"], value="%e. %b w"),
+        dict(dtickrange=["M1", "M12"], value="%b '%y M"),
+        dict(dtickrange=["M12", None], value="%Y Y")
+    ]
+)
+fig.update_xaxes(title="Date", title_font_size= 20)
+fig.update_yaxes(title = "Price", title_font_size= 20)
+fig.update_layout(title_text="Analysis", title_font_size= 30)
+fig.show()
+#scaling the data between the range 0 to 1.
+scaler = MinMaxScaler(feature_range = (0,1))
+scaled_data = scaler.fit_transform(df['Close'].values.reshape(-1,1))
+#Taking the data from the past 60 to predict.
+prediction_days = 60
+#Converting the data into an array.
+x_train = []
+y_train = []
+for x in range(prediction_days, len(scaled_data)):
+    x_train.append(scaled_data[x-prediction_days:x, 0])
+    y_train.append(scaled_data[x,0])
+
+x_train, y_train = np.array(x_train), np.array(y_train)
+x_train, y_train
+(array([[0.06356047, 0.05080377, 0.04975437, ..., 0.03308214, 0.03207209,
+         0.0366599 ],
+        [0.05080377, 0.04975437, 0.04938054, ..., 0.03207209, 0.0366599 ,
+         0.03824384],
+        [0.04975437, 0.04938054, 0.04127724, ..., 0.0366599 , 0.03824384,
+         0.03658777],
+        ...,
+        [0.86296891, 0.85506563, 0.85250443, ..., 0.90245231, 0.88704591,
+         0.89334554],
+        [0.85506563, 0.85250443, 0.85584288, ..., 0.88704591, 0.89334554,
+         0.8906532 ],
+        [0.85250443, 0.85584288, 0.87022937, ..., 0.89334554, 0.8906532 ,
+         0.91232977]]),
+ array([0.03824384, 0.03658777, 0.03818153, ..., 0.8906532 , 0.91232977,
+        0.91791772]))
+#Reshaping the array.
+x_train = np.reshape(x_train,(x_train.shape[0], x_train.shape[1], 1))
+x_train.shape, y_train.shape
+((1309, 60, 1), (1309,))
+#Building the lstm model.
+lstm = Sequential()
+
+lstm.add(LSTM(units = 50, return_sequences = True, input_shape = (x_train.shape[1],1)))
+lstm.add(Dropout(0.2))
+lstm.add(LSTM(units = 50, return_sequences = True))
+lstm.add(Dropout(0.2))
+lstm.add(LSTM(units = 50))
+lstm.add(Dropout(0.2))
+lstm.add(Dense(units = 1))
+
+lstm.compile(optimizer = 'adam', loss = 'mean_squared_error')
+lstm.fit(x_train, y_train, epochs = 100, batch_size =32, verbose = 2)
+Epoch 1/100
+41/41 - 30s - loss: 0.0301
+Epoch 2/100
+41/41 - 3s - loss: 0.0043
+Epoch 3/100
+41/41 - 2s - loss: 0.0036
+Epoch 4/100
+41/41 - 2s - loss: 0.0030
+Epoch 5/100
+41/41 - 2s - loss: 0.0030
+Epoch 6/100
+41/41 - 2s - loss: 0.0028
+Epoch 7/100
+41/41 - 2s - loss: 0.0030
+Epoch 8/100
+41/41 - 2s - loss: 0.0030
+Epoch 9/100
+41/41 - 3s - loss: 0.0027
+Epoch 10/100
+41/41 - 3s - loss: 0.0029
+Epoch 11/100
+41/41 - 3s - loss: 0.0028
+Epoch 12/100
+41/41 - 3s - loss: 0.0028
+Epoch 13/100
+41/41 - 3s - loss: 0.0024
+Epoch 14/100
+41/41 - 3s - loss: 0.0025
+Epoch 15/100
+41/41 - 3s - loss: 0.0023
+Epoch 16/100
+41/41 - 3s - loss: 0.0020
+Epoch 17/100
+41/41 - 3s - loss: 0.0025
+Epoch 18/100
+41/41 - 2s - loss: 0.0027
+Epoch 19/100
+41/41 - 3s - loss: 0.0020
+Epoch 20/100
+41/41 - 3s - loss: 0.0024
+Epoch 21/100
+41/41 - 2s - loss: 0.0020
+Epoch 22/100
+41/41 - 3s - loss: 0.0021
+Epoch 23/100
+41/41 - 2s - loss: 0.0020
+Epoch 24/100
+41/41 - 2s - loss: 0.0018
+Epoch 25/100
+41/41 - 2s - loss: 0.0020
+Epoch 26/100
+41/41 - 2s - loss: 0.0021
+Epoch 27/100
+41/41 - 2s - loss: 0.0020
+Epoch 28/100
+41/41 - 2s - loss: 0.0018
+Epoch 29/100
+41/41 - 2s - loss: 0.0018
+Epoch 30/100
+41/41 - 2s - loss: 0.0025
+Epoch 31/100
+41/41 - 3s - loss: 0.0019
+Epoch 32/100
+41/41 - 3s - loss: 0.0019
+Epoch 33/100
+41/41 - 3s - loss: 0.0020
+Epoch 34/100
+41/41 - 2s - loss: 0.0017
+Epoch 35/100
+41/41 - 2s - loss: 0.0019
+Epoch 36/100
+41/41 - 3s - loss: 0.0014
+Epoch 37/100
+41/41 - 3s - loss: 0.0017
+Epoch 38/100
+41/41 - 3s - loss: 0.0015
+Epoch 39/100
+41/41 - 2s - loss: 0.0018
+Epoch 40/100
+41/41 - 2s - loss: 0.0016
+Epoch 41/100
+41/41 - 3s - loss: 0.0016
+Epoch 42/100
+41/41 - 2s - loss: 0.0015
+Epoch 43/100
+41/41 - 3s - loss: 0.0016
+Epoch 44/100
+41/41 - 3s - loss: 0.0018
+Epoch 45/100
+41/41 - 3s - loss: 0.0015
+Epoch 46/100
+41/41 - 2s - loss: 0.0016
+Epoch 47/100
+41/41 - 3s - loss: 0.0015
+Epoch 48/100
+41/41 - 2s - loss: 0.0014
+Epoch 49/100
+41/41 - 3s - loss: 0.0015
+Epoch 50/100
+41/41 - 2s - loss: 0.0014
+Epoch 51/100
+41/41 - 3s - loss: 0.0015
+Epoch 52/100
+41/41 - 2s - loss: 0.0015
+Epoch 53/100
+41/41 - 2s - loss: 0.0014
+Epoch 54/100
+41/41 - 2s - loss: 0.0013
+Epoch 55/100
+41/41 - 2s - loss: 0.0014
+Epoch 56/100
+41/41 - 3s - loss: 0.0016
+Epoch 57/100
+41/41 - 2s - loss: 0.0016
+Epoch 58/100
+41/41 - 2s - loss: 0.0015
+Epoch 59/100
+41/41 - 3s - loss: 0.0015
+Epoch 60/100
+41/41 - 2s - loss: 0.0013
+Epoch 61/100
+41/41 - 2s - loss: 0.0012
+Epoch 62/100
+41/41 - 3s - loss: 0.0012
+Epoch 63/100
+41/41 - 2s - loss: 0.0013
+Epoch 64/100
+41/41 - 2s - loss: 0.0013
+Epoch 65/100
+41/41 - 2s - loss: 0.0012
+Epoch 66/100
+41/41 - 3s - loss: 0.0014
+Epoch 67/100
+41/41 - 3s - loss: 0.0013
+Epoch 68/100
+41/41 - 3s - loss: 0.0012
+Epoch 69/100
+41/41 - 3s - loss: 0.0012
+Epoch 70/100
+41/41 - 3s - loss: 0.0011
+Epoch 71/100
+41/41 - 3s - loss: 0.0010
+Epoch 72/100
+41/41 - 3s - loss: 0.0013
+Epoch 73/100
+41/41 - 2s - loss: 0.0012
+Epoch 74/100
+41/41 - 2s - loss: 0.0012
+Epoch 75/100
+41/41 - 2s - loss: 0.0011
+Epoch 76/100
+41/41 - 2s - loss: 0.0011
+Epoch 77/100
+41/41 - 2s - loss: 0.0012
+Epoch 78/100
+41/41 - 2s - loss: 0.0011
+Epoch 79/100
+41/41 - 2s - loss: 0.0011
+Epoch 80/100
+41/41 - 2s - loss: 9.3893e-04
+Epoch 81/100
+41/41 - 2s - loss: 0.0012
+Epoch 82/100
+41/41 - 2s - loss: 0.0010
+Epoch 83/100
+41/41 - 2s - loss: 9.9901e-04
+Epoch 84/100
+41/41 - 2s - loss: 0.0010
+Epoch 85/100
+41/41 - 2s - loss: 0.0010
+Epoch 86/100
+41/41 - 2s - loss: 0.0011
+Epoch 87/100
+41/41 - 2s - loss: 0.0011
+Epoch 88/100
+41/41 - 2s - loss: 0.0010
+Epoch 89/100
+41/41 - 2s - loss: 0.0011
+Epoch 90/100
+41/41 - 2s - loss: 0.0011
+Epoch 91/100
+41/41 - 3s - loss: 0.0010
+Epoch 92/100
+41/41 - 3s - loss: 0.0010
+Epoch 93/100
+41/41 - 3s - loss: 9.9506e-04
+Epoch 94/100
+41/41 - 3s - loss: 0.0010
+Epoch 95/100
+41/41 - 2s - loss: 0.0010
+Epoch 96/100
+41/41 - 2s - loss: 0.0011
+Epoch 97/100
+41/41 - 2s - loss: 0.0011
+Epoch 98/100
+41/41 - 2s - loss: 9.1929e-04
+Epoch 99/100
+41/41 - 2s - loss: 9.7446e-04
+Epoch 100/100
+41/41 - 2s - loss: 0.0011
+<keras.callbacks.History at 0x22486c60b20>
+lstm.summary()
+Model: "sequential"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+lstm (LSTM)                  (None, 60, 50)            10400     
+_________________________________________________________________
+dropout (Dropout)            (None, 60, 50)            0         
+_________________________________________________________________
+lstm_1 (LSTM)                (None, 60, 50)            20200     
+_________________________________________________________________
+dropout_1 (Dropout)          (None, 60, 50)            0         
+_________________________________________________________________
+lstm_2 (LSTM)                (None, 50)                20200     
+_________________________________________________________________
+dropout_2 (Dropout)          (None, 50)                0         
+_________________________________________________________________
+dense (Dense)                (None, 1)                 51        
+=================================================================
+Total params: 50,851
+Trainable params: 50,851
+Non-trainable params: 0
+_________________________________________________________________
+#Now testing the Model Accuracy on Existing data by loading test data.
+test_start = datetime(2020, 5, 1)
+test_end = datetime.now()
+stock_test = stock
+test_data = pdr.get_data_yahoo(stock_test, test_start, test_end)
+test_data = test_data.to_csv(f'{stock_test}_test.csv')
+test_data = pd.read_csv(f'{stock_test}_test.csv')
+test_data
+Date	High	Low	Open	Close	Volume	Adj Close
+0	2020-04-30	2475.000000	2396.010010	2419.840088	2474.000000	9534600	2474.000000
+1	2020-05-01	2362.439941	2258.189941	2336.800049	2286.040039	9772600	2286.040039
+2	2020-05-04	2326.979980	2256.379883	2256.379883	2315.989990	4865900	2315.989990
+3	2020-05-05	2351.000000	2307.129883	2340.000000	2317.800049	3242500	2317.800049
+4	2020-05-06	2357.449951	2320.000000	2329.439941	2351.260010	3117800	2351.260010
+...	...	...	...	...	...	...	...
+275	2021-06-03	3214.439941	3184.030029	3204.229980	3187.010010	2398300	3187.010010
+276	2021-06-04	3221.000000	3198.810059	3212.000000	3206.219971	2245700	3206.219971
+277	2021-06-07	3208.000000	3172.199951	3197.330078	3198.010010	2215800	3198.010010
+278	2021-06-08	3279.530029	3218.010010	3222.610107	3264.110107	3405900	3264.110107
+279	2021-06-09	3297.580078	3270.699951	3272.870117	3281.149902	2439123	3281.149902
+280 rows × 7 columns
+
+actual_closing_prices = test_data['Close'].values
+#linking actual data and test data.
+total_dataset = pd.concat((df['Close'], test_data['Close']), axis = 0)
+#Transform test data.
+model_input_data = total_dataset[len(total_dataset)- len(test_data)-prediction_days:].values
+model_input_data = model_input_data.reshape(-1,1)
+model_input_data = scaler.transform(model_input_data)
+x_test = []
+for x in range(prediction_days, len(model_input_data)):
+    x_test.append(model_input_data[x-prediction_days:x,0])
+    
+#coverting test data into array.
+x_test = np.array(x_test)
+x_test
+array([[0.85584288, 0.87022937, 0.8348976 , ..., 0.8906532 , 0.91232977,
+        0.91791772],
+       [0.87022937, 0.8348976 , 0.85030072, ..., 0.91232977, 0.91791772,
+        0.6532246 ],
+       [0.8348976 , 0.85030072, 0.86207693, ..., 0.91791772, 0.6532246 ,
+        0.59158585],
+       ...,
+       [0.86296891, 0.85506563, 0.85250443, ..., 0.90245231, 0.88704591,
+        0.89334554],
+       [0.85506563, 0.85250443, 0.85584288, ..., 0.88704591, 0.89334554,
+        0.8906532 ],
+       [0.85250443, 0.85584288, 0.87022937, ..., 0.89334554, 0.8906532 ,
+        0.91232977]])
+#reshaping test data.
+x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+x_test.shape
+(280, 60, 1)
+#Predictions on Test Data.
+predicted_prices = lstm.predict(x_test)
+predicted_prices = scaler.inverse_transform(predicted_prices)
+df_predicted = pd.DataFrame(predicted_prices, columns=["Predicted Prices"])
+df_test_data = pd.DataFrame(test_data, columns = ["Date"])
+
+df_2 = [df_test_data['Date'], test_data['Close'], df_predicted['Predicted Prices'], ]
+df_3 = pd.concat(df_2, axis = 1)
+df_3
+Date	Close	Predicted Prices
+0	2020-04-30	2474.000000	3297.869385
+1	2020-05-01	2286.040039	3205.663086
+2	2020-05-04	2315.989990	3025.325195
+3	2020-05-05	2317.800049	2824.125732
+4	2020-05-06	2351.260010	2651.706543
+...	...	...	...
+275	2021-06-03	3187.010010	3297.667480
+276	2021-06-04	3206.219971	3288.975098
+277	2021-06-07	3198.010010	3281.511475
+278	2021-06-08	3264.110107	3275.760254
+279	2021-06-09	3281.149902	3281.705322
+280 rows × 3 columns
+
+fig = go.Figure(go.Scatter(
+    x = df_3['Date'],
+    y = df_3['Close'],
+name = 'Actual Price'))
+
+fig.add_trace(go.Scatter(
+    x = df_3['Date'],
+    y = df_3['Predicted Prices'],
+    mode = "lines",
+    line=go.scatter.Line(color="black"),
+    name = 'Predicted Price'
+))
+fig.update_xaxes(title="Date", title_font_size= 20)
+fig.update_yaxes(title = "Price", title_font_size= 20)
+fig.show()
+#Predicting Next day.
+real_data = [model_input_data[len(model_input_data)+1 - prediction_days: len(model_input_data)+1,0]]
+real_data = np.array(real_data)
+real_data = np.reshape(real_data, (real_data.shape[0], real_data.shape[1], 1))
+prediction = lstm.predict(real_data)
+prediction = scaler.inverse_transform(prediction)
+prediction
+WARNING:tensorflow:Model was constructed with shape (None, 60, 1) for input KerasTensor(type_spec=TensorSpec(shape=(None, 60, 1), dtype=tf.float32, name='lstm_input'), name='lstm_input', description="created by layer 'lstm_input'"), but it was called on an input with incompatible shape (None, 59, 1).
+array([[3297.8687]], dtype=float32)
